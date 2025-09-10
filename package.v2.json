@@ -1,0 +1,40 @@
+{
+  "JackettV2": {
+    "name": "JackettV2",
+    "description": "支持 Jackett 搜索器，将Jackett索引器添加到MoviePilot V2内建搜索器中。已修复最新版本兼容性问题。",
+    "version": "1.6.1",
+    "icon": "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico",
+    "author": "jason (原作者) + szicely (兼容性修正)",
+    "level": 2,
+    "module": "jackettv2",
+    "info": "专为MoviePilot V2版本设计的Jackett索引器插件，支持将Jackett中的所有索引器添加到MoviePilot的搜索系统中。已修复与最新版MoviePilot的兼容性问题。",
+    "tags": ["搜索", "下载", "站点", "索引器"],
+    "support": {
+      "version": ">=2.0.0",
+      "python": ">=3.12"
+    },
+    "requirements": [
+      "requests"
+    ],
+    "history": {
+      "1.6.1": "修复与MoviePilot最新版本的兼容性问题，添加get_command()抽象方法，实现远程命令支持(/jackett_reload、/jackett_status)，改进索引器集成策略使用SitesHelper API，添加自动同步服务(每6小时)，增强错误处理和资源清理，完善文档和部署指南",
+      "1.6": "原始版本，支持MoviePilot V2版本",
+      "1.3": "修复索引器删除功能，使用新的API接口，优化刷新机制",
+      "1.2": "移除事件系统依赖，改用服务类直接刷新，增加多重刷新机制", 
+      "1.1": "修复索引器刷新问题，增加多种刷新机制",
+      "1.0": "完成基础功能，支持Jackett索引器导入"
+    },
+    "compatibility": {
+      "moviepilot": ">=2.0.0",
+      "python": ">=3.12"
+    },
+    "features": [
+      "自动集成Jackett中配置的索引器到MoviePilot搜索系统",
+      "支持选择性导入指定的索引器",
+      "提供RESTful API用于管理索引器",
+      "支持远程命令控制(/jackett_reload、/jackett_status)",
+      "自动定时同步(每6小时)",
+      "完整的错误处理和日志记录"
+    ]
+  }
+}
