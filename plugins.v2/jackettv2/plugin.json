@@ -1,0 +1,30 @@
+{
+  "plugin_name": "JackettV2",
+  "plugin_version": "1.6.1",
+  "plugin_author": "jason",
+  "plugin_desc": "支持 Jackett 搜索器，将Jackett索引器添加到MoviePilot V2内建搜索器中。已修复最新版本兼容性问题。",
+  "plugin_icon": "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico",
+  "author_url": "https://github.com/xj-bear",
+  "plugin_order": 21,
+  "user_level": 2,
+  "plugin_config_prefix": "jackettv2_",
+  "requirements": [
+    "requests"
+  ],
+  "categories": ["搜索器", "下载"],
+  "tags": ["jackett", "torrent", "搜索", "indexer", "moviepilot"],
+  "compatibility": {
+    "moviepilot_version": ">=2.0.0",
+    "python_version": ">=3.12"
+  },
+  "changelog": {
+    "1.6.1": [
+      "修复与MoviePilot最新版本的兼容性问题",
+      "添加get_command()抽象方法",
+      "实现远程命令控制功能",
+      "改进索引器集成策略",
+      "添加定时同步功能",
+      "增强错误处理和资源清理"
+    ]
+  }
+}
