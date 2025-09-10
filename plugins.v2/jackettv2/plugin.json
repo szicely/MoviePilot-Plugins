@@ -1,6 +1,6 @@
 {
   "plugin_name": "JackettV2",
-  "plugin_version": "1.6.2",
+  "plugin_version": "1.6.3",
   "plugin_author": "jason",
   "plugin_desc": "支持 Jackett 搜索器，将Jackett索引器添加到MoviePilot V2内建搜索器中。已修复最新版本兼容性问题。",
   "plugin_icon": "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico",
@@ -18,6 +18,11 @@
     "python_version": ">=3.12"
   },
   "changelog": {
+    "1.6.3": [
+      "强制版本更新",
+      "确保MoviePilot能正确识别最新版本",
+      "修复插件市场缓存问题"
+    ],
     "1.6.2": [
       "修复插件加载问题",
       "增强事件管理器兼容性",
