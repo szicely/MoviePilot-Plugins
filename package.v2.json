@@ -2,13 +2,14 @@
   "JackettV2": {
     "name": "JackettV2",
     "description": "支持 Jackett 搜索器，将Jackett索引器添加到MoviePilot V2内建搜索器中。已修复最新版本兼容性问题。",
-    "version": "1.6.3",
+    "version": "1.6.4",
     "icon": "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico",
     "author": "jason",
     "level": 2,
     "module": "jackettv2",
     "labels": "搜索,下载",
     "history": {
+      "1.6.4": "修复严重的Python语法错误，解决except语句后缺少缩进块的问题，简化插件目录结构与原作者保持一致",
       "1.6.3": "强制版本更新，确保MoviePilot能正确识别最新版本，修复插件市场缓存问题",
       "1.6.2": "修复插件加载问题，增强事件管理器兼容性，改进错误处理，确保插件能在安装列表中正常显示",
       "1.6.1": "修复与MoviePilot最新版本的兼容性问题，添加get_command()抽象方法，实现远程命令支持，改进索引器集成策略，添加自动同步服务，增强错误处理和资源清理",

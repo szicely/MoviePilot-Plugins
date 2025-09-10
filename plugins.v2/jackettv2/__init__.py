@@ -26,7 +26,7 @@ class JackettV2(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico"
     # 插件版本
-    plugin_version = "1.6.3"
+    plugin_version = "1.6.4"
     # 插件作者
     plugin_author = "jason"
     # 作者主页  
@@ -541,6 +541,8 @@ class JackettV2(_PluginBase):
                 self._add_jackett_indexers()
                 print(f"【{self.plugin_name}】定时同步完成")
         except Exception as e:
+            print(f"【{self.plugin_name}】定时同步异常: {str(e)}")
+
     def get_indexers(self) -> Dict[str, Any]:
         """
         API接口：获取Jackett索引器列表
