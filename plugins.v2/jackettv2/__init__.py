@@ -2,7 +2,12 @@ from typing import Dict, Any, List, Optional, Tuple
 from app.plugins import _PluginBase
 from app.utils.http import RequestUtils
 from app.schemas import NotificationType
-from app.core.event import eventmanager, Event
+try:
+    from app.core.event import eventmanager, Event
+except ImportError:
+    # 兼容不同版本的MoviePilot
+    eventmanager = None
+    Event = None
 import json
 import os
 import time
@@ -24,8 +29,8 @@ class JackettV2(_PluginBase):
     plugin_version = "1.6.1"
     # 插件作者
     plugin_author = "jason"
-    # 作者主页
-    author_url = "https://github.com/xj-bear"
+    # 作者主页  
+    author_url = "https://github.com/szicely"
     # 插件配置项ID前缀
     plugin_config_prefix = "jackettv2_"
     # 加载顺序
@@ -48,37 +53,49 @@ class JackettV2(_PluginBase):
         """
         插件初始化
         """
-        print(f"【{self.plugin_name}】正在初始化插件...")
-        if not config:
-            print(f"【{self.plugin_name}】配置为空")
-            return
+        try:
+            print(f"【{self.plugin_name}】正在初始化插件...")
+            if not config:
+                print(f"【{self.plugin_name}】配置为空")
+                return
 
-        # 读取配置
-        self._enabled = config.get("enabled", False)
-        self._host = config.get("host")
-        self._api_key = config.get("api_key")
-        self._password = config.get("password")
-        self._indexers = config.get("indexers", [])
-        
-        # 初始化会话
-        self._session = None
-        self._cookies = None
-        
-        # 注册事件处理器
-        self.eventmanager.register("jackett.reload", self._handle_reload_command)
-        self.eventmanager.register("jackett.status", self._handle_status_command)
-        
-        print(f"【{self.plugin_name}】插件初始化完成，状态: {self._enabled}")
-        
-        # 如果配置了API信息，则尝试添加索引器，即使插件未启用
-        if self._host and self._api_key:
-            print(f"【{self.plugin_name}】尝试添加Jackett索引器...")
+            # 读取配置
+            self._enabled = config.get("enabled", False)
+            self._host = config.get("host")
+            self._api_key = config.get("api_key")
+            self._password = config.get("password")
+            self._indexers = config.get("indexers", [])
+            
+            # 初始化会话
+            self._session = None
+            self._cookies = None
+            
+            # 注册事件处理器（兼容处理）
             try:
-                self._add_jackett_indexers()
+                if hasattr(self, 'eventmanager') and self.eventmanager:
+                    self.eventmanager.register("jackett.reload", self._handle_reload_command)
+                    self.eventmanager.register("jackett.status", self._handle_status_command)
+                elif eventmanager:
+                    eventmanager.register("jackett.reload", self._handle_reload_command)
+                    eventmanager.register("jackett.status", self._handle_status_command)
             except Exception as e:
-                print(f"【{self.plugin_name}】添加索引器异常: {str(e)}")
-                import traceback
-                print(f"【{self.plugin_name}】异常详情: {traceback.format_exc()}")
+                print(f"【{self.plugin_name}】事件管理器注册失败: {str(e)}")
+            
+            print(f"【{self.plugin_name}】插件初始化完成，状态: {self._enabled}")
+            
+            # 如果配置了API信息，则尝试添加索引器，即使插件未启用
+            if self._host and self._api_key:
+                print(f"【{self.plugin_name}】尝试添加Jackett索引器...")
+                try:
+                    self._add_jackett_indexers()
+                except Exception as e:
+                    print(f"【{self.plugin_name}】添加索引器异常: {str(e)}")
+                    import traceback
+                    print(f"【{self.plugin_name}】异常详情: {traceback.format_exc()}")
+        except Exception as e:
+            print(f"【{self.plugin_name}】插件初始化失败: {str(e)}")
+            import traceback
+            print(f"【{self.plugin_name}】初始化异常详情: {traceback.format_exc()}")
 
     def _handle_reload_command(self, event: Event = None):
         """
@@ -127,9 +144,13 @@ class JackettV2(_PluginBase):
         """
         获取插件状态
         """
-        state = bool(self._enabled and self._host and self._api_key)
-        print(f"【{self.plugin_name}】get_state返回: {state}, enabled={self._enabled}, host={bool(self._host)}, api_key={bool(self._api_key)}")
-        return state
+        try:
+            state = bool(self._enabled and self._host and self._api_key)
+            print(f"【{self.plugin_name}】get_state返回: {state}, enabled={self._enabled}, host={bool(self._host)}, api_key={bool(self._api_key)}")
+            return state
+        except Exception as e:
+            print(f"【{self.plugin_name}】get_state异常: {str(e)}")
+            return False
 
     def get_command(self) -> List[Dict[str, Any]]:
         """
@@ -576,10 +597,14 @@ class JackettV2(_PluginBase):
         try:
             print(f"【{self.plugin_name}】正在停止服务...")
             
-            # 注销事件处理器
+            # 注销事件处理器（兼容处理）
             try:
-                self.eventmanager.unregister("jackett.reload", self._handle_reload_command)
-                self.eventmanager.unregister("jackett.status", self._handle_status_command)
+                if hasattr(self, 'eventmanager') and self.eventmanager:
+                    self.eventmanager.unregister("jackett.reload", self._handle_reload_command)
+                    self.eventmanager.unregister("jackett.status", self._handle_status_command)
+                elif eventmanager:
+                    eventmanager.unregister("jackett.reload", self._handle_reload_command)
+                    eventmanager.unregister("jackett.status", self._handle_status_command)
             except Exception as e:
                 print(f"【{self.plugin_name}】注销事件处理器异常: {str(e)}")
             
