@@ -14,6 +14,7 @@ import time
 import xml.dom.minidom
 from urllib.parse import urljoin
 import requests
+from datetime import datetime
 
 class JackettV2(_PluginBase):
     """
@@ -26,7 +27,7 @@ class JackettV2(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico"
     # 插件版本
-    plugin_version = "1.6.4"
+    plugin_version = "1.6.5"
     # 插件作者
     plugin_author = "jason"
     # 作者主页  
@@ -272,6 +273,13 @@ class JackettV2(_PluginBase):
                 "methods": ["GET"],
                 "summary": "重新加载Jackett索引器",
                 "description": "重新加载Jackett索引器到MoviePilot"
+            },
+            {
+                "path": "/jackettv2/test",
+                "endpoint": self.test_connection,
+                "methods": ["GET"],
+                "summary": "测试Jackett连接",
+                "description": "测试与Jackett服务器的连接状态"
             }
         ]
 
@@ -280,14 +288,22 @@ class JackettV2(_PluginBase):
         获取Jackett索引器列表
         """
         if not self._host or not self._api_key:
-            print(f"【{self.plugin_name}】缺少必要配置参数，无法获取索引器")
+            print(f"【{self.plugin_name}】配置检查失败:")
+            print(f"  - 服务器地址: {'已配置' if self._host else '未配置'}")
+            print(f"  - API密钥: {'已配置' if self._api_key else '未配置'}")
             return []
         
         # 规范化host地址
         if self._host.endswith('/'):
             self._host = self._host[:-1]
             
+        print(f"【{self.plugin_name}】开始连接Jackett服务器: {self._host}")
+            
         try:
+            # 首先测试基本连接
+            test_url = f"{self._host}/api/v2.0/server/config"
+            print(f"【{self.plugin_name}】测试连接: {test_url}")
+            
             # 设置请求头
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
@@ -300,8 +316,51 @@ class JackettV2(_PluginBase):
             session = requests.session()
             req = RequestUtils(headers=headers, session=session)
             
+            # 测试服务器连接和API密钥
+            try:
+                test_response = req.get_res(
+                    url=test_url,
+                    verify=False,
+                    timeout=10
+                )
+                
+                if test_response:
+                    if test_response.status_code == 200:
+                        print(f"【{self.plugin_name}】✓ 服务器连接成功，API密钥有效")
+                    elif test_response.status_code == 401:
+                        print(f"【{self.plugin_name}】✗ API密钥无效或已过期")
+                        return []
+                    elif test_response.status_code == 403:
+                        print(f"【{self.plugin_name}】✗ 访问被拒绝，请检查API密钥权限")
+                        return []
+                    elif test_response.status_code == 404:
+                        print(f"【{self.plugin_name}】✗ API端点不存在，请检查Jackett版本")
+                        return []
+                    else:
+                        print(f"【{self.plugin_name}】服务器响应异常，状态码: {test_response.status_code}")
+                        print(f"【{self.plugin_name}】响应内容: {test_response.text[:200]}")
+                else:
+                    print(f"【{self.plugin_name}】✗ 无法连接到服务器，请检查地址和网络")
+                    return []
+                    
+            except requests.exceptions.ConnectTimeout:
+                print(f"【{self.plugin_name}】✗ 连接超时，请检查服务器地址和网络状态")
+                return []
+            except requests.exceptions.ConnectionError as ce:
+                print(f"【{self.plugin_name}】✗ 连接错误: {str(ce)}")
+                print(f"【{self.plugin_name}】请检查:")
+                print(f"  1. Jackett服务是否正在运行")
+                print(f"  2. 服务器地址是否正确 (当前: {self._host})")
+                print(f"  3. 端口是否开放")
+                print(f"  4. 防火墙设置")
+                return []
+            except Exception as te:
+                print(f"【{self.plugin_name}】连接测试异常: {str(te)}")
+                return []
+            
             # 如果设置了密码，则进行认证
             if self._password:
+                print(f"【{self.plugin_name}】进行密码认证...")
                 dashboard_url = f"{self._host}/UI/Dashboard"
                 auth_data = {"password": self._password}
                 auth_params = {"password": self._password}
@@ -314,24 +373,68 @@ class JackettV2(_PluginBase):
                 
                 if dashboard_res and session.cookies:
                     self._cookies = session.cookies.get_dict()
+                    print(f"【{self.plugin_name}】✓ 密码认证成功")
+                else:
+                    print(f"【{self.plugin_name}】密码认证可能失败，但继续尝试获取索引器")
             
             # 获取索引器列表
             indexer_query_url = f"{self._host}/api/v2.0/indexers?configured=true"
+            print(f"【{self.plugin_name}】请求索引器列表: {indexer_query_url}")
+            
             response = req.get_res(
                 url=indexer_query_url,
-                verify=False
+                verify=False,
+                timeout=15
             )
             
-            if response and response.status_code == 200:
-                indexers = response.json()
-                if indexers and isinstance(indexers, list):
-                    print(f"【{self.plugin_name}】成功获取到{len(indexers)}个索引器")
-                    return indexers
-                    
-            return []
+            if response:
+                print(f"【{self.plugin_name}】索引器API响应状态码: {response.status_code}")
+                
+                if response.status_code == 200:
+                    try:
+                        indexers = response.json()
+                        if indexers and isinstance(indexers, list):
+                            print(f"【{self.plugin_name}】✓ 成功获取到{len(indexers)}个已配置的索引器")
+                            
+                            # 显示索引器详情
+                            for idx, indexer in enumerate(indexers[:5]):  # 只显示前5个
+                                indexer_id = indexer.get('id', 'unknown')
+                                indexer_name = indexer.get('name', 'unknown')
+                                indexer_status = indexer.get('configured', False)
+                                print(f"  {idx+1}. {indexer_name} (ID: {indexer_id}, 状态: {'已配置' if indexer_status else '未配置'})")
+                            
+                            if len(indexers) > 5:
+                                print(f"  ... 还有{len(indexers)-5}个索引器")
+                                
+                            return indexers
+                        elif isinstance(indexers, list) and len(indexers) == 0:
+                            print(f"【{self.plugin_name}】索引器列表为空，请先在Jackett中配置索引器")
+                            return []
+                        else:
+                            print(f"【{self.plugin_name}】索引器数据格式异常: {type(indexers)}")
+                            return []
+                    except Exception as je:
+                        print(f"【{self.plugin_name}】解析索引器数据异常: {str(je)}")
+                        print(f"【{self.plugin_name}】原始响应: {response.text[:500]}")
+                        return []
+                elif response.status_code == 401:
+                    print(f"【{self.plugin_name}】✗ API密钥认证失败")
+                    return []
+                elif response.status_code == 403:
+                    print(f"【{self.plugin_name}】✗ 权限不足，无法访问索引器API")
+                    return []
+                else:
+                    print(f"【{self.plugin_name}】获取索引器失败，状态码: {response.status_code}")
+                    print(f"【{self.plugin_name}】错误响应: {response.text[:300]}")
+                    return []
+            else:
+                print(f"【{self.plugin_name}】✗ 索引器API请求失败，无响应")
+                return []
                 
         except Exception as e:
             print(f"【{self.plugin_name}】获取Jackett索引器异常: {str(e)}")
+            import traceback
+            print(f"【{self.plugin_name}】详细异常信息: {traceback.format_exc()}")
             return []
 
     def _format_indexer(self, jackett_indexer):
@@ -590,6 +693,153 @@ class JackettV2(_PluginBase):
                 "code": 1,
                 "message": f"重新加载索引器失败: {str(e)}",
                 "data": None
+            }
+
+    def test_connection(self) -> Dict[str, Any]:
+        """
+        API接口：测试Jackett连接
+        """
+        try:
+            if not self._host or not self._api_key:
+                return {
+                    "code": 1,
+                    "message": "配置不完整，请检查服务器地址和API密钥",
+                    "data": {
+                        "host_configured": bool(self._host),
+                        "api_key_configured": bool(self._api_key),
+                        "details": "服务器地址和API密钥都必须填写"
+                    }
+                }
+            
+            # 规范化host地址
+            test_host = self._host
+            if test_host.endswith('/'):
+                test_host = test_host[:-1]
+            
+            # 测试基本连接
+            test_url = f"{test_host}/api/v2.0/server/config"
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "User-Agent": "MoviePilot/2.0",
+                "X-Api-Key": self._api_key,
+                "Accept": "application/json, text/javascript, */*; q=0.01"
+            }
+            
+            import requests
+            from app.utils.http import RequestUtils
+            
+            session = requests.session()
+            req = RequestUtils(headers=headers, session=session)
+            
+            test_response = req.get_res(
+                url=test_url,
+                verify=False,
+                timeout=10
+            )
+            
+            if test_response:
+                if test_response.status_code == 200:
+                    # 测试索引器API
+                    indexer_url = f"{test_host}/api/v2.0/indexers?configured=true"
+                    indexer_response = req.get_res(
+                        url=indexer_url,
+                        verify=False,
+                        timeout=10
+                    )
+                    
+                    if indexer_response and indexer_response.status_code == 200:
+                        indexers = indexer_response.json()
+                        indexer_count = len(indexers) if isinstance(indexers, list) else 0
+                        
+                        return {
+                            "code": 0,
+                            "message": "连接成功",
+                            "data": {
+                                "server_status": "connected",
+                                "api_key_status": "valid",
+                                "indexer_count": indexer_count,
+                                "server_info": f"成功连接到Jackett服务器，发现{indexer_count}个已配置的索引器",
+                                "test_time": str(datetime.now())
+                            }
+                        }
+                    else:
+                        return {
+                            "code": 1,
+                            "message": "服务器连接成功但无法获取索引器列表",
+                            "data": {
+                                "server_status": "connected",
+                                "api_key_status": "valid",
+                                "indexer_api_status": "failed",
+                                "details": f"索引器API响应状态码: {indexer_response.status_code if indexer_response else 'No Response'}"
+                            }
+                        }
+                        
+                elif test_response.status_code == 401:
+                    return {
+                        "code": 1,
+                        "message": "API密钥无效",
+                        "data": {
+                            "server_status": "connected",
+                            "api_key_status": "invalid",
+                            "details": "API密钥验证失败，请检查API Key是否正确"
+                        }
+                    }
+                elif test_response.status_code == 403:
+                    return {
+                        "code": 1,
+                        "message": "访问被拒绝",
+                        "data": {
+                            "server_status": "connected",
+                            "api_key_status": "forbidden",
+                            "details": "API密钥没有足够的权限访问该接口"
+                        }
+                    }
+                else:
+                    return {
+                        "code": 1,
+                        "message": f"服务器响应异常: {test_response.status_code}",
+                        "data": {
+                            "server_status": "error",
+                            "status_code": test_response.status_code,
+                            "details": test_response.text[:200] if test_response.text else "No response content"
+                        }
+                    }
+            else:
+                return {
+                    "code": 1,
+                    "message": "无法连接到服务器",
+                    "data": {
+                        "server_status": "unreachable",
+                        "details": f"无法连接到 {test_host}，请检查地址和网络连接"
+                    }
+                }
+                
+        except requests.exceptions.ConnectTimeout:
+            return {
+                "code": 1,
+                "message": "连接超时",
+                "data": {
+                    "server_status": "timeout",
+                    "details": "连接超时，请检查服务器地址和网络状态"
+                }
+            }
+        except requests.exceptions.ConnectionError as ce:
+            return {
+                "code": 1,
+                "message": "连接错误",
+                "data": {
+                    "server_status": "connection_error",
+                    "details": f"连接失败: {str(ce)}，请检查Jackett服务是否正在运行"
+                }
+            }
+        except Exception as e:
+            return {
+                "code": 1,
+                "message": f"测试连接异常: {str(e)}",
+                "data": {
+                    "server_status": "error",
+                    "details": str(e)
+                }
             }
 
     def stop_service(self):
