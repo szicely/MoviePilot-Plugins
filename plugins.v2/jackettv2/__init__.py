@@ -2,12 +2,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from app.plugins import _PluginBase
 from app.utils.http import RequestUtils
 from app.schemas import NotificationType
-try:
-    from app.core.event import eventmanager, Event
-except ImportError:
-    # 兼容不同版本的MoviePilot
-    eventmanager = None
-    Event = None
+import traceback
 import json
 import os
 import time
@@ -15,6 +10,20 @@ import xml.dom.minidom
 from urllib.parse import urljoin
 import requests
 from datetime import datetime
+
+try:
+    # 尝试导入V2版本的事件管理器
+    from app.core.event import eventmanager, Event
+except ImportError:
+    try:
+        # 尝试导入旧版本的事件管理器
+        from app.core.event import EventManager
+        eventmanager = EventManager()
+        Event = None
+    except ImportError:
+        # 兼容不同版本的MoviePilot
+        eventmanager = None
+        Event = None
 
 class JackettV2(_PluginBase):
     """
@@ -27,9 +36,9 @@ class JackettV2(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico"
     # 插件版本
-    plugin_version = "1.6.5"
+    plugin_version = "1.7.0"
     # 插件作者
-    plugin_author = "jason"
+    plugin_author = "jason, szicely"
     # 作者主页  
     author_url = "https://github.com/szicely"
     # 插件配置项ID前缀
@@ -74,13 +83,24 @@ class JackettV2(_PluginBase):
             # 注册事件处理器（兼容处理）
             try:
                 if hasattr(self, 'eventmanager') and self.eventmanager:
+                    # 使用实例的事件管理器
                     self.eventmanager.register("jackett.reload", self._handle_reload_command)
                     self.eventmanager.register("jackett.status", self._handle_status_command)
                 elif eventmanager:
-                    eventmanager.register("jackett.reload", self._handle_reload_command)
-                    eventmanager.register("jackett.status", self._handle_status_command)
+                    # 使用全局事件管理器
+                    if hasattr(eventmanager, 'register'):
+                        # V2版本的事件管理器
+                        eventmanager.register("jackett.reload", self._handle_reload_command)
+                        eventmanager.register("jackett.status", self._handle_status_command)
+                    elif hasattr(eventmanager, 'register_event'):
+                        # 旧版本的事件管理器
+                        eventmanager.register_event("jackett.reload", self._handle_reload_command)
+                        eventmanager.register_event("jackett.status", self._handle_status_command)
+                print(f"【{self.plugin_name}】事件管理器注册成功")
             except Exception as e:
                 print(f"【{self.plugin_name}】事件管理器注册失败: {str(e)}")
+                import traceback
+                print(f"【{self.plugin_name}】事件管理器注册异常详情: {traceback.format_exc()}")
             
             print(f"【{self.plugin_name}】插件初始化完成，状态: {self._enabled}")
             
@@ -476,6 +496,12 @@ class JackettV2(_PluginBase):
                 "domain": self._host,
                 "encoding": "utf-8",
                 "public": False,
+                # 重要：添加parser字段，指定使用Jackett解析器
+                "parser": "JACKETT",
+                # 重要：添加搜索类型，确保MoviePilot能正确调用搜索方法
+                "search_type": "torznab",
+                # 重要：添加plugin_id，关联到本插件
+                "plugin_id": self.plugin_name,
                 "search": {
                     "paths": [
                         {
@@ -529,28 +555,77 @@ class JackettV2(_PluginBase):
                     
                     # 尝试通过站点助手添加索引器（新版本API）
                     try:
-                        # 使用站点助手注册自定义站点
-                        from app.helper.sites import SitesHelper
-                        sites_helper = SitesHelper()
+                        # 尝试多种方式导入站点助手
+                        sites_helper = None
+                        try:
+                            # V2版本路径
+                            from app.helper.sites import SitesHelper
+                            sites_helper = SitesHelper()
+                            print(f"【{self.plugin_name}】成功导入V2版本站点助手")
+                        except ImportError:
+                            try:
+                                # 尝试旧版本路径
+                                from app.helper.site import SiteHelper
+                                sites_helper = SiteHelper()
+                                print(f"【{self.plugin_name}】成功导入旧版本站点助手")
+                            except ImportError:
+                                print(f"【{self.plugin_name}】无法导入站点助手，将使用配置保存方式")
                         
-                        # 构建站点配置
-                        site_config = {
-                            "id": indexer_config["id"],
-                            "name": indexer_config["name"],
-                            "domain": indexer_config["domain"],
-                            "encoding": indexer_config["encoding"],
-                            "public": indexer_config["public"],
-                            "proxy": False,
-                            "parser": "JACKETT",
-                            "ua": "MoviePilot/2.0",
-                            "search": indexer_config["search"]
-                        }
-                        
-                        # 尝试添加站点
-                        if hasattr(sites_helper, 'add_custom_site'):
-                            sites_helper.add_custom_site(site_config)
-                        elif hasattr(sites_helper, 'register_site'):
-                            sites_helper.register_site(site_config)
+                        if sites_helper:
+                            # 构建站点配置
+                            site_config = {
+                                "id": indexer_config["id"],
+                                "name": indexer_config["name"],
+                                "domain": indexer_config["domain"],
+                                "encoding": indexer_config["encoding"],
+                                "public": indexer_config["public"],
+                                "proxy": False,
+                                # 重要：指定解析器为JACKETT
+                                "parser": "JACKETT",
+                                # 重要：添加搜索类型
+                                "search_type": "torznab",
+                                # 重要：关联到本插件
+                                "plugin_id": self.plugin_name,
+                                "ua": "MoviePilot/2.0",
+                                "search": indexer_config["search"],
+                                # 添加V2版本可能需要的额外字段
+                                "category": indexer_config.get("category")
+                            }
+                            
+                            # 尝试添加站点
+                            if hasattr(sites_helper, 'add_custom_site'):
+                                # V2版本API
+                                sites_helper.add_custom_site(site_config)
+                                print(f"【{self.plugin_name}】使用add_custom_site添加索引器: {indexer_name}")
+                            elif hasattr(sites_helper, 'register_site'):
+                                # 兼容API
+                                sites_helper.register_site(site_config)
+                                print(f"【{self.plugin_name}】使用register_site添加索引器: {indexer_name}")
+                            elif hasattr(sites_helper, 'add_site'):
+                                # 可能的其他API
+                                sites_helper.add_site(site_config)
+                                print(f"【{self.plugin_name}】使用add_site添加索引器: {indexer_name}")
+                            else:
+                                raise Exception("站点助手没有可用的添加站点方法")
+                                
+                            # 重要：注册搜索处理器
+                            try:
+                                # 尝试注册搜索处理器
+                                from app.modules.search import SearchManager
+                                search_manager = SearchManager()
+                                if hasattr(search_manager, 'register_search_handler'):
+                                    search_manager.register_search_handler(
+                                        site_id=indexer_config["id"],
+                                        handler=self.search
+                                    )
+                                    print(f"【{self.plugin_name}】成功注册搜索处理器: {indexer_config['id']}")
+                            except ImportError:
+                                print(f"【{self.plugin_name}】无法导入SearchManager，搜索功能可能无法正常工作")
+                            except Exception as sh_error:
+                                print(f"【{self.plugin_name}】注册搜索处理器异常: {str(sh_error)}")
+                        else:
+                            # 如果无法导入站点助手，使用配置保存方式
+                            raise Exception("站点助手导入失败，将使用配置保存方式")
                         
                         self._added_indexers.append(indexer_config["id"])
                         added_count += 1
@@ -568,14 +643,13 @@ class JackettV2(_PluginBase):
                             print(f"【{self.plugin_name}】保存索引器配置失败: {str(save_error)}")
                         
                 except Exception as e:
-                    print(f"【{self.plugin_name}】添加索引器 {indexer_name} 异常: {str(e)}")
+                    print(f"【{self.plugin_name}】添加索引器 {indexer_name if 'indexer_name' in locals() else indexer_id} 异常: {str(e)}")
                     continue
             
             print(f"【{self.plugin_name}】共添加了 {added_count} 个Jackett索引器")
             
         except Exception as e:
             print(f"【{self.plugin_name}】添加Jackett索引器异常: {str(e)}")
-            import traceback
             print(f"【{self.plugin_name}】异常详情: {traceback.format_exc()}")
 
     def _remove_added_indexers(self):
@@ -588,23 +662,56 @@ class JackettV2(_PluginBase):
             
             # 尝试通过站点助手移除
             try:
-                from app.helper.sites import SitesHelper
-                sites_helper = SitesHelper()
-                
-                for indexer_id in self._added_indexers:
+                # 尝试多种方式导入站点助手
+                sites_helper = None
+                try:
+                    # V2版本路径
+                    from app.helper.sites import SitesHelper
+                    sites_helper = SitesHelper()
+                    print(f"【{self.plugin_name}】成功导入V2版本站点助手(移除)")
+                except ImportError:
                     try:
-                        if hasattr(sites_helper, 'remove_custom_site'):
-                            sites_helper.remove_custom_site(indexer_id)
-                        elif hasattr(sites_helper, 'unregister_site'):
-                            sites_helper.unregister_site(indexer_id)
-                        print(f"【{self.plugin_name}】移除索引器: {indexer_id}")
-                    except Exception as e:
-                        print(f"【{self.plugin_name}】移除索引器 {indexer_id} 异常: {str(e)}")
-                        # 如果API移除失败，尝试删除保存的配置
+                        # 尝试旧版本路径
+                        from app.helper.site import SiteHelper
+                        sites_helper = SiteHelper()
+                        print(f"【{self.plugin_name}】成功导入旧版本站点助手(移除)")
+                    except ImportError:
+                        print(f"【{self.plugin_name}】无法导入站点助手，将使用配置删除方式(移除)")
+                
+                if sites_helper:
+                    for indexer_id in self._added_indexers:
+                        try:
+                            # 尝试多种可能的API
+                            if hasattr(sites_helper, 'remove_custom_site'):
+                                # V2版本API
+                                sites_helper.remove_custom_site(indexer_id)
+                                print(f"【{self.plugin_name}】使用remove_custom_site移除索引器: {indexer_id}")
+                            elif hasattr(sites_helper, 'unregister_site'):
+                                # 兼容API
+                                sites_helper.unregister_site(indexer_id)
+                                print(f"【{self.plugin_name}】使用unregister_site移除索引器: {indexer_id}")
+                            elif hasattr(sites_helper, 'delete_site'):
+                                # 可能的其他API
+                                sites_helper.delete_site(indexer_id)
+                                print(f"【{self.plugin_name}】使用delete_site移除索引器: {indexer_id}")
+                            else:
+                                # 如果没有可用的API，尝试删除保存的配置
+                                raise Exception("站点助手没有可用的移除站点方法")
+                        except Exception as e:
+                            print(f"【{self.plugin_name}】移除索引器 {indexer_id} 异常: {str(e)}")
+                            # 如果API移除失败，尝试删除保存的配置
+                            try:
+                                self.del_data(f"indexer_{indexer_id.replace('jackett_', '')}")
+                            except Exception:
+                                pass
+                else:
+                    # 如果无法导入站点助手，直接删除保存的配置
+                    for indexer_id in self._added_indexers:
                         try:
                             self.del_data(f"indexer_{indexer_id.replace('jackett_', '')}")
-                        except Exception:
-                            pass
+                            print(f"【{self.plugin_name}】通过配置删除索引器: {indexer_id}")
+                        except Exception as e:
+                            print(f"【{self.plugin_name}】删除索引器配置失败: {str(e)}")
                             
             except ImportError:
                 # 如果无法导入站点助手，清理保存的配置数据
@@ -633,6 +740,199 @@ class JackettV2(_PluginBase):
                 "kwargs": {"hours": 6}  # 每6小时同步一次
             })
         return services
+        
+    def search(self, keyword: str, indexer: str = None, page: int = 0, mtype: str = None) -> List[Dict[str, Any]]:
+        """
+        搜索接口，提供给MoviePilot调用
+        
+        :param keyword: 搜索关键词
+        :param indexer: 索引器ID
+        :param page: 页码
+        :param mtype: 媒体类型
+        :return: 搜索结果
+        """
+        import traceback
+        
+        if not self._host or not self._api_key:
+            print(f"【{self.plugin_name}】搜索失败：未配置Jackett地址或API Key")
+            return []
+            
+        if not indexer or not indexer.startswith("jackett_"):
+            print(f"【{self.plugin_name}】搜索失败：不支持的索引器 {indexer}")
+            return []
+            
+        # 从索引器ID中提取Jackett索引器ID
+        jackett_indexer_id = indexer.replace("jackett_", "")
+        
+        # 构建搜索URL
+        search_url = f"{self._host}/api/v2.0/indexers/{jackett_indexer_id}/results/torznab/api"
+        
+        # 确定搜索类型
+        search_type_map = {
+            "电影": "movie",
+            "电视剧": "tvsearch",
+            "动漫": "tvsearch",
+            "综艺": "tvsearch",
+            "movie": "movie",
+            "tv": "tvsearch",
+            "anime": "tvsearch",
+            "show": "tvsearch"
+        }
+        
+        search_type = "search"
+        if mtype and mtype in search_type_map:
+            search_type = search_type_map.get(mtype)
+            
+        # 构建请求参数
+        params = {
+            "apikey": self._api_key,
+            "t": search_type,
+            "q": keyword,
+            "extended": 1
+        }
+        
+        # 添加分类参数
+        category_map = {
+            "电影": "2000,2010,2020,2030,2040,2045,2050,2060",
+            "电视剧": "5000,5020,5030,5040,5050,5060,5070,5080",
+            "动漫": "5000,5020,5030,5040,5050,5060,5070,5080",
+            "综艺": "5000,5020,5030,5040,5050,5060,5070,5080",
+            "movie": "2000,2010,2020,2030,2040,2045,2050,2060",
+            "tv": "5000,5020,5030,5040,5050,5060,5070,5080",
+            "anime": "5000,5020,5030,5040,5050,5060,5070,5080",
+            "show": "5000,5020,5030,5040,5050,5060,5070,5080"
+        }
+        
+        if mtype and mtype in category_map:
+            params["cat"] = category_map.get(mtype)
+            
+        print(f"【{self.plugin_name}】正在搜索: {keyword}, 类型: {mtype}, 索引器: {jackett_indexer_id}")
+        print(f"【{self.plugin_name}】搜索URL: {search_url}")
+        print(f"【{self.plugin_name}】搜索参数: {params}")
+        
+        try:
+            # 设置请求头
+            headers = {
+                "User-Agent": "MoviePilot/2.0",
+                "Accept": "application/rss+xml, application/xml"
+            }
+            
+            # 发送请求
+            req = RequestUtils(headers=headers)
+            response = req.get_res(url=search_url, params=params)
+            
+            if not response or response.status_code != 200:
+                print(f"【{self.plugin_name}】搜索失败: HTTP状态码 {response.status_code if response else 'None'}")
+                if response and response.text:
+                    print(f"【{self.plugin_name}】错误响应: {response.text[:500]}")
+                return []
+                
+            # 解析XML响应
+            try:
+                # 保存响应内容到日志，便于调试
+                print(f"【{self.plugin_name}】收到响应，长度: {len(response.text)} 字节")
+                print(f"【{self.plugin_name}】响应内容预览: {response.text[:200]}...")
+                
+                dom = xml.dom.minidom.parseString(response.text)
+                items = dom.getElementsByTagName("item")
+                
+                if not items:
+                    print(f"【{self.plugin_name}】未找到搜索结果，响应中没有item元素")
+                    return []
+                    
+                print(f"【{self.plugin_name}】找到 {len(items)} 个搜索结果")
+                
+                results = []
+                for idx, item in enumerate(items):
+                    try:
+                        # 提取标题
+                        title_nodes = item.getElementsByTagName("title")
+                        if not title_nodes or not title_nodes[0].firstChild:
+                            print(f"【{self.plugin_name}】结果 #{idx+1} 缺少标题，跳过")
+                            continue
+                        title = title_nodes[0].firstChild.nodeValue
+                        
+                        # 提取链接
+                        link_nodes = item.getElementsByTagName("link")
+                        if not link_nodes or not link_nodes[0].firstChild:
+                            print(f"【{self.plugin_name}】结果 #{idx+1} '{title}' 缺少链接，跳过")
+                            continue
+                        link = link_nodes[0].firstChild.nodeValue
+                        
+                        # 提取发布时间
+                        pubdate = ""
+                        pubdate_nodes = item.getElementsByTagName("pubDate")
+                        if pubdate_nodes and pubdate_nodes[0].firstChild:
+                            pubdate = pubdate_nodes[0].firstChild.nodeValue
+                        
+                        # 提取种子信息
+                        enclosure_nodes = item.getElementsByTagName("enclosure")
+                        if not enclosure_nodes:
+                            print(f"【{self.plugin_name}】结果 #{idx+1} '{title}' 缺少种子链接，跳过")
+                            continue
+                        enclosure = enclosure_nodes[0]
+                        torrent_url = enclosure.getAttribute("url")
+                        
+                        # 提取大小
+                        size = 0
+                        size_nodes = item.getElementsByTagName("size")
+                        if size_nodes and size_nodes[0].firstChild:
+                            try:
+                                size = int(size_nodes[0].firstChild.nodeValue)
+                            except (ValueError, TypeError):
+                                print(f"【{self.plugin_name}】结果 #{idx+1} '{title}' 大小解析失败")
+                            
+                        # 提取做种和下载数
+                        seeders = 0
+                        peers = 0
+                        for attr in item.getElementsByTagName("torznab:attr"):
+                            name = attr.getAttribute("name")
+                            value = attr.getAttribute("value")
+                            if name == "seeders" and value:
+                                try:
+                                    seeders = int(value)
+                                except (ValueError, TypeError):
+                                    pass
+                            elif name == "peers" and value:
+                                try:
+                                    peers = int(value)
+                                except (ValueError, TypeError):
+                                    pass
+                                    
+                        # 构建结果
+                        result = {
+                            "title": title,
+                            "enclosure": torrent_url,
+                            "size": size,
+                            "seeders": seeders,
+                            "peers": peers,
+                            "page_url": link,
+                            "indexer": indexer,
+                            "site": indexer.replace("jackett_", ""),
+                            "pubdate": pubdate
+                        }
+                        results.append(result)
+                        
+                        # 打印前几个结果的详情，便于调试
+                        if idx < 2:
+                            print(f"【{self.plugin_name}】结果 #{idx+1}: {title}, 大小: {size}, 做种: {seeders}")
+                            
+                    except Exception as item_e:
+                        print(f"【{self.plugin_name}】处理结果 #{idx+1} 异常: {str(item_e)}")
+                        continue
+                    
+                print(f"【{self.plugin_name}】搜索成功，找到 {len(results)} 个有效结果")
+                return results
+                
+            except Exception as e:
+                print(f"【{self.plugin_name}】解析搜索结果异常: {str(e)}")
+                print(f"【{self.plugin_name}】异常详情: {traceback.format_exc()}")
+                return []
+                
+        except Exception as e:
+            print(f"【{self.plugin_name}】搜索异常: {str(e)}")
+            print(f"【{self.plugin_name}】异常详情: {traceback.format_exc()}")
+            return []
 
     def _sync_indexers(self):
         """
@@ -852,13 +1152,26 @@ class JackettV2(_PluginBase):
             # 注销事件处理器（兼容处理）
             try:
                 if hasattr(self, 'eventmanager') and self.eventmanager:
-                    self.eventmanager.unregister("jackett.reload", self._handle_reload_command)
-                    self.eventmanager.unregister("jackett.status", self._handle_status_command)
+                    # 使用实例的事件管理器
+                    if hasattr(self.eventmanager, 'unregister'):
+                        self.eventmanager.unregister("jackett.reload", self._handle_reload_command)
+                        self.eventmanager.unregister("jackett.status", self._handle_status_command)
+                    elif hasattr(self.eventmanager, 'unregister_event'):
+                        self.eventmanager.unregister_event("jackett.reload", self._handle_reload_command)
+                        self.eventmanager.unregister_event("jackett.status", self._handle_status_command)
                 elif eventmanager:
-                    eventmanager.unregister("jackett.reload", self._handle_reload_command)
-                    eventmanager.unregister("jackett.status", self._handle_status_command)
+                    # 使用全局事件管理器
+                    if hasattr(eventmanager, 'unregister'):
+                        eventmanager.unregister("jackett.reload", self._handle_reload_command)
+                        eventmanager.unregister("jackett.status", self._handle_status_command)
+                    elif hasattr(eventmanager, 'unregister_event'):
+                        eventmanager.unregister_event("jackett.reload", self._handle_reload_command)
+                        eventmanager.unregister_event("jackett.status", self._handle_status_command)
+                print(f"【{self.plugin_name}】事件管理器注销成功")
             except Exception as e:
                 print(f"【{self.plugin_name}】注销事件处理器异常: {str(e)}")
+                import traceback
+                print(f"【{self.plugin_name}】事件管理器注销异常详情: {traceback.format_exc()}")
             
             # 移除添加的索引器
             self._remove_added_indexers()
