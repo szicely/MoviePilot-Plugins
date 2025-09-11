@@ -36,7 +36,7 @@ class JackettV2(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico"
     # 插件版本
-    plugin_version = "1.7.0"
+    plugin_version = "2.0.0"
     # 插件作者
     plugin_author = "jason, szicely"
     # 作者主页  
