@@ -2,13 +2,16 @@
   "JackettV2": {
     "name": "JackettV2",
     "description": "支持 Jackett 搜索器，将Jackett索引器添加到MoviePilot V2内建搜索器中。已修复最新版本兼容性问题。",
-    "version": "1.7.1",
+    "version": "2.0.0",
+    "force_refresh": true,
+    "build_id": "20250911v2",
     "icon": "https://raw.githubusercontent.com/Jackett/Jackett/master/src/Jackett.Common/Content/favicon.ico",
     "author": "jason, szicely, icely",
     "level": 2,
     "module": "jackettv2",
     "labels": "搜索,下载",
     "history": {
+      "2.0.0": "重大版本更新，完全兼容MoviePilot V2搜索系统，修复所有已知问题",
       "1.7.1": "强制版本更新，解决插件市场缓存问题",
       "1.7.0": "修复搜索功能无法正常工作的问题，优化与MoviePilot V2的搜索系统集成，增强XML解析的稳定性，添加详细日志记录，确保Jackett能接收到搜索请求",
       "1.6.6": "全面增强与MoviePilot V2的兼容性，改进站点助手API调用方式，优化事件管理器处理，提高索引器注册和移除的成功率",
